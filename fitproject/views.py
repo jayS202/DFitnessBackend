@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .decorators import require_roles
 import datetime
+import os
 
 @api_view(["GET"])
 def get_my_profile(request):
@@ -142,6 +143,7 @@ def login(request):
         
         # Mint Session Cookie for persistent server-side session
         remember = bool(request.data.get("remember", True))
+        secure_flag = bool(os.environ.get("SESSION_COOKIE_SECURE", True))
         if remember:
             expires_in = datetime.timedelta(days=5)
             session_cookie =  firebase_auth.create_session_cookie(token, expires_in=expires_in)
@@ -151,7 +153,7 @@ def login(request):
                 session_cookie, 
                 max_age=int(expires_in.total_seconds()),
                 httponly=True,
-                secure=True,
+                secure=secure_flag,
                 samesite='Lax'
             )
             print("Session cookie set:", resp.cookies)
@@ -160,3 +162,24 @@ def login(request):
     except Exception as e:
         print("Error verifying ID token:", str(e))
         return Response({"detail": "Invalid ID token or login failed", "error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+
+@api_view(["POST"])
+def verify_session(request):
+    session = request.COOKIES.get("session")
+    if not session:
+        header = request.META.get("HTTP_AUTHORIZATION", "")
+        if header.startswith("Bearer"):
+            session = header.split(" ", 1)[1]
+            
+    if not session:
+        return Response({"detail": "No session provided"}, status = status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        decoded = firebase_auth.verify_session_cookie(session, check_revoked=True)
+        role = decoded.get("role") or decoded.get("customClaims", {}).get("role") or "customer"
+
+        return Response({"uid": decoded.get("uid"), "role": role}, status=status.HTTP_200_OK)
+    except firebase_auth.RevokedIdTokenError:
+        return Response({"detail": "Session revoked, please login again"}, status=status.HTTP_401_UNAUTHORIZED)
+    except Exception as e:
+        return Response({"detail": "Invalid session", "error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
