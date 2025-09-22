@@ -9,6 +9,12 @@ from .decorators import require_roles
 import datetime
 import os
 
+from fitproject.models import DfitUser, Profile
+from .serializers import UserSerializer, ProfileSerializer
+
+from rest_framework.views import APIView
+from rest_framework import generics
+
 @api_view(["GET"])
 def get_my_profile(request):
     if not request.uid:
@@ -183,3 +189,40 @@ def verify_session(request):
         return Response({"detail": "Session revoked, please login again"}, status=status.HTTP_401_UNAUTHORIZED)
     except Exception as e:
         return Response({"detail": "Invalid session", "error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    
+############### User CRUD Views ###############
+class user_list(APIView):
+    def get(self, request):
+        users = DfitUser.objects.all()
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = UserSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class user_detail(APIView):
+    def get(self, request, firebase_uid):
+        try:
+            user = DfitUser.objects.get(firebase_uid=firebase_uid)
+        except DfitUser.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
+
+    def put(self, request, firebase_uid):
+        user = DfitUser.objects.get(firebase_uid=firebase_uid)
+        serializer = UserSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, firebase_uid):
+        user = DfitUser.objects.get(firebase_uid=firebase_uid)
+        user.delete()
+        return Response("User deleted successfully",status=status.HTTP_204_NO_CONTENT)  
