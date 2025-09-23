@@ -11,6 +11,7 @@ import os
 
 from fitproject.models import DfitUser, Profile
 from .serializers import UserSerializer, ProfileSerializer
+from .permissions import IsFirebaseAuthenticated, IsOwnerOrAdmin
 
 from rest_framework.views import APIView
 from rest_framework import generics
@@ -193,6 +194,7 @@ def verify_session(request):
     
 ############### User CRUD Views ###############
 class user_list(APIView):
+    # permission_classes = [IsFirebaseAuthenticated]
     def get(self, request):
         users = DfitUser.objects.all()
         serializer = UserSerializer(users, many=True)
