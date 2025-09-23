@@ -16,7 +16,10 @@ class FirebaseAuthMiddleware(MiddlewareMixin):
                 # doc = settings.fs_db.collection("users").document(uid).get()
                 doc = fs_db.collection("users").document(uid).get()
                 profile = doc.to_dict() or {}
-            except Exception:
+                print("[FirebaseAuthMiddleware] Authenticated uid:", uid)
+                print("[FirebaseAuthMiddleware] profile:", profile)
+            except Exception as e:
+                print("[FirebaseAuthMiddleware] token verification failed: ", str(e))
                 pass
         request.uid = uid
         request.user_profile = profile
