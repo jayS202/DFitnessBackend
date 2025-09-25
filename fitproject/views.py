@@ -1,4 +1,3 @@
-# import firestore as _  # avoid clash
 from firebase_admin import auth as firebase_auth, firestore
 from django.conf import settings
 from .firebase_admin_init import fs_db, firebase_app
