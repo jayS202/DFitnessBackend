@@ -19,6 +19,7 @@ class Profile(models.Model):
     gender = models.CharField(max_length=32, blank=True)
     height_cm = models.FloatField(null=True, blank=True)
     weight_kg = models.FloatField(null=True, blank=True)
+    goal = models.CharField(max_length=255, blank=True)
     trainer_required = models.BooleanField(default=False)
     
     def __str__(self):

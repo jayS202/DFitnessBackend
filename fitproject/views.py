@@ -11,7 +11,7 @@ import os
 
 from fitproject.models import DfitUser, Profile
 from .serializers import UserSerializer, ProfileSerializer
-from .permissions import IsFirebaseAuthenticated, IsOwnerOrAdmin
+from .permissions import IsSessionAuthenticated, UserAccessPermission
 
 from rest_framework.views import APIView
 from rest_framework import generics
@@ -35,7 +35,6 @@ def get_user_data(request):
     return Response(user_doc.to_dict())
 
 @api_view(["POST"])
-# @require_roles("admin")
 def set_user_role(request):
     data = request.data
     target = data.get("uid")
@@ -45,10 +44,13 @@ def set_user_role(request):
 
     if not target or not role:
         return Response({"detail": "uid & role required"}, status=400)
+    
+    try:
+        target_user = firebase_auth.get_user(target)
+    except firebase_auth.UserNotFoundError:
+        return Response({"detail": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
     user_ref = fs_db.collection("users").document(target)
-    old = user_ref.get().to_dict() or {}
-    old_role = old.get("role", "")
 
     user_ref.set({
         "role": role,
@@ -57,16 +59,23 @@ def set_user_role(request):
         "updatedBy": admin_uid
     }, merge=True)
 
-    # fs_db.collection("role_changes").document(target).add({
-    #     "uid": target,
-    #     "oldRole": old_role,
-    #     "newRole": role,
-    #     "changedBy": admin_uid,
-    #     "timestamp": firestore.SERVER_TIMESTAMP
-    # })
-
     firebase_auth.set_custom_user_claims(target, {"role": role, "permissions": perms})
-    return Response({"status": "ok"})
+    
+    try:
+        firebase_auth.revoke_refresh_tokens(target)
+    except Exception:
+        pass
+    
+    return Response(
+        {
+            "uid": target,
+            "role": role,
+            "permissions": perms,
+            "updatedBy": admin_uid,
+            "email": getattr(target_user, "email", None)
+        },
+        status=status.HTTP_200_OK
+    )
 
 @api_view(["POST"])
 def create_profile(request):
@@ -76,20 +85,41 @@ def create_profile(request):
     Ensures the authenticated request.uid matches the target uid before creating profile
     and setting custom claims (role).
     """
-    try:
-        data = request.data
-        target = data.get("uid")
-        email = data.get("email")
-        if not target or request.uid != target:
-            return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+    if not request.uid:
+        return Response({'detail': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 
+    data = request.data
+    target = data.get("uid")
+    email = data.get("email")
+    first_name = data.get("first_name") or ""
+    last_name = data.get("last_name")or ""
+    if not target or request.uid != target:
+        return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        
+    try:
         # set server-side custom claims
         firebase_auth.set_custom_user_claims(target, {"role": "customer", "permissions": []})
-        print("Auth is Set!")
-        return Response({'status': 'Custom claims is set'}, status=201)
+        
+        db = firestore.client()
+        db.collection("users").document(target).set(
+            {
+                "email": email,
+                "firstName": first_name,
+                "lastName": last_name,
+                "role": "customer",
+                "permissions": [],
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "createdBy": target,
+                "updatedBy": target,
+            },
+            merge=True
+        )
+        
+        return Response({"status": "profile_created", "role": "customer"}, status=status.HTTP_201_CREATED)
     except Exception as e:
         print("Error in create_profile:", str(e))
-        return Response({"error": "Setting Custom claims failed"}, status=500)
+        return Response({"detail": "Profile creation failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(["POST"])
@@ -194,7 +224,13 @@ def verify_session(request):
     
 ############### User CRUD Views ###############
 class user_list(APIView):
-    # permission_classes = [IsFirebaseAuthenticated]
+    permission_classes = [IsSessionAuthenticated]
+    
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return []
+        return [perm() for perm in self.permission_classes]
+    
     def get(self, request):
         users = DfitUser.objects.all()
         serializer = UserSerializer(users, many=True)
@@ -208,6 +244,7 @@ class user_list(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class user_detail(APIView):
+    permission_classes = [IsSessionAuthenticated, UserAccessPermission]
     def get(self, request, firebase_uid):
         try:
             user = DfitUser.objects.get(firebase_uid=firebase_uid)
@@ -228,3 +265,63 @@ class user_detail(APIView):
         user = DfitUser.objects.get(firebase_uid=firebase_uid)
         user.delete()
         return Response("User deleted successfully",status=status.HTTP_204_NO_CONTENT)  
+    
+
+class profile_list(APIView):
+    permission_classes = [IsSessionAuthenticated]
+    
+    # def get_permissions(self):
+    #     if self.request.method == "POST":
+    #         return []
+    #     return [perm() for perm in self.permission_classes]
+    
+    def get(self, request):
+        profiles = Profile.objects.select_related("user").all()
+        serializer = ProfileSerializer(profiles, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        firebase_uid = request.data.get("firebase_uid")
+        if not firebase_uid:
+            return Response({"error": "Firebase UID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = DfitUser.objects.get(firebase_uid=firebase_uid)
+        except DfitUser.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        
+        profile, _ = Profile.objects.get_or_create(user=user)
+        serializer = ProfileSerializer(profile, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class profile_detail(APIView):
+    permission_classes = [IsSessionAuthenticated, UserAccessPermission]
+    def get(self, request, firebase_uid):
+        try:
+            profile = Profile.objects.select_related("user").get(user__firebase_uid=firebase_uid)
+        except Profile.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ProfileSerializer(profile)
+        return Response(serializer.data)
+
+    def put(self, request, firebase_uid):
+        try:
+            profile = Profile.objects.select_related("user").get(user__firebase_uid=firebase_uid)
+        except Profile.DoesNotExist:
+            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ProfileSerializer(profile, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, firebase_uid):
+        try:
+            profile = Profile.objects.get(user__firebase_uid=firebase_uid)
+        except Profile.DoesNotExist:
+            return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
+        profile.delete()
+        return Response("Profile deleted successfully",status=status.HTTP_204_NO_CONTENT)  
+
