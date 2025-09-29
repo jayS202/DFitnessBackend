@@ -198,6 +198,13 @@ def login(request):
     except Exception as e:
         print("Error verifying ID token:", str(e))
         return Response({"detail": "Invalid ID token or login failed", "error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+    
+@api_view(["POST"])
+def logout(request):
+    resp = Response({"status": "logged_out"})
+    # Remove session cookie
+    resp.delete_cookie("session")
+    return resp
 
 @api_view(["POST"])
 def verify_session(request):
@@ -323,4 +330,3 @@ class profile_detail(APIView):
             return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
         profile.delete()
         return Response("Profile deleted successfully",status=status.HTTP_204_NO_CONTENT)  
-

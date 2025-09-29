@@ -1,8 +1,9 @@
 from django.urls import path, include
-from fitproject.views import user_list, user_detail, create_profile, set_user_role, login, verify_session, profile_list, profile_detail
+from fitproject.views import user_list, user_detail, create_profile, set_user_role, login, logout, verify_session, profile_list, profile_detail
 
 urlpatterns = [
     path('login/', login, name='login'),
+    path('logout/', logout, name='logout'),
     path('create-profile/', create_profile, name='create-profile'),
     path('set-role/', set_user_role, name='set-role'),
     path('verify-session/', verify_session, name='verify-session'),
