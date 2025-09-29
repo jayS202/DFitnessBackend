@@ -21,6 +21,7 @@ class Profile(models.Model):
     weight_kg = models.FloatField(null=True, blank=True)
     goal = models.CharField(max_length=255, blank=True)
     trainer_required = models.BooleanField(default=False)
+    discriminator = models.CharField()
     
     def __str__(self):
         return f"Profile({self.user.email or self.user.firebase_uid})"
