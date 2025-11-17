@@ -1,5 +1,5 @@
 from django.contrib import admin
-from fitproject.models import DfitUser, Profile
+from fitproject.models import Account, Profile
 
-admin.site.register(DfitUser)
+admin.site.register(Account)
 admin.site.register(Profile)
