@@ -2,3 +2,4 @@ Django>=4.2
 djangorestframework
 firebase-admin
 django-cors-headers
+drf-spectacular

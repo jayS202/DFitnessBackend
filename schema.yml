@@ -1,0 +1,180 @@
+openapi: 3.0.3
+info:
+  title: DFitness Auth API
+  version: 1.0.0
+  description: API for Dfitness Authentication and User Management
+paths:
+  /auth/create-profile/:
+    post:
+      operationId: create_profile_create
+      description: |-
+        Client calls this immediately after signup.
+        Expects Authorization: Bearer <idToken> and body { uid, email }.
+        Ensures the authenticated request.uid matches the target uid before creating profile
+        and setting custom claims (role).
+      tags:
+      - create-profile
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /auth/login/:
+    post:
+      operationId: login_create
+      description: |-
+        Accepts either:
+          - JSON body { "tokenId": "<token>", "remember": true }
+          - OR Authorization: Bearer <token>
+
+        Verifies the ID token, returns uid, email, custom claims and Firestore profile.
+        If "remember" is true the view will mint a Firebase session cookie and set it
+        as a secure HttpOnly cookie (requires HTTPS in production).
+      tags:
+      - login
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /auth/logout/:
+    post:
+      operationId: logout_create
+      tags:
+      - logout
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /auth/profile/:
+    get:
+      operationId: profile_retrieve
+      tags:
+      - profile
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: profile_create
+      tags:
+      - profile
+      responses:
+        '200':
+          description: No response body
+  /auth/profile/{firebase_uid}/:
+    get:
+      operationId: profile_retrieve_2
+      parameters:
+      - in: path
+        name: firebase_uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - profile
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: profile_update
+      parameters:
+      - in: path
+        name: firebase_uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - profile
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: profile_destroy
+      parameters:
+      - in: path
+        name: firebase_uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - profile
+      responses:
+        '204':
+          description: No response body
+  /auth/set-role/:
+    post:
+      operationId: set_role_create
+      tags:
+      - set-role
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /auth/users/:
+    get:
+      operationId: users_retrieve
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: users_create
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+  /auth/users/{firebase_uid}/:
+    get:
+      operationId: users_retrieve_2
+      parameters:
+      - in: path
+        name: firebase_uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    put:
+      operationId: users_update
+      parameters:
+      - in: path
+        name: firebase_uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: users_destroy
+      parameters:
+      - in: path
+        name: firebase_uid
+        schema:
+          type: string
+        required: true
+      tags:
+      - users
+      responses:
+        '204':
+          description: No response body
+  /auth/verify-session/:
+    post:
+      operationId: verify_session_create
+      tags:
+      - verify-session
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+components: {}

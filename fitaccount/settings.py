@@ -15,7 +15,7 @@ SECRET_KEY = 'django-insecure-gb_1^y1kky_$44vlua#ox0%zurhk==_7fh-^^o)2a+6x(tp=fc
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['Samashk.pythonanywhere.com']
+ALLOWED_HOSTS = ['Samashk.pythonanywhere.com','localhost']
 
 
 # Application definition
@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     "rest_framework",
     "corsheaders",
+    # 'drf_spectacular',
     'fitproject',
 ]
 
@@ -125,5 +126,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
-    "DEFAULT_AUTHENTICATION_CLASSES": []
+    "DEFAULT_AUTHENTICATION_CLASSES": [],
+    # 'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
+# SPECTACULAR_SETTINGS = {
+#     'TITLE': 'DFitness Auth API',
+#     'DESCRIPTION': 'API for Dfitness Authentication and User Management',
+#     'VERSION': '1.0.0',
+#     'SERVE_INCLUDE_SCHEMA': False,
+#     # OTHER SETTINGS
+# }

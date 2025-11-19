@@ -8,7 +8,7 @@ from .decorators import require_roles
 import datetime
 import os
 
-from fitproject.models import DfitUser, Profile
+from fitproject.models import Account, Profile
 from .serializers import UserSerializer, ProfileSerializer
 from .permissions import IsSessionAuthenticated, UserAccessPermission
 
@@ -34,9 +34,11 @@ def get_user_data(request):
     return Response(user_doc.to_dict())
 
 @api_view(["POST"])
-def set_user_role(request):
+def set_user_info(request):
     data = request.data
     target = data.get("uid")
+    firstName = data.get("firstName", "")
+    lastName = data.get("lastName", "")
     role = data.get("role")
     perms = data.get("permissions", [])
     admin_uid = data.get("adminUid", "")
@@ -52,6 +54,8 @@ def set_user_role(request):
     user_ref = fs_db.collection("users").document(target)
 
     user_ref.set({
+        "firstName": firstName,
+        "lastName": lastName,
         "role": role,
         "permissions": perms,
         "updatedAt": firestore.SERVER_TIMESTAMP,
@@ -227,6 +231,87 @@ def verify_session(request):
     except Exception as e:
         return Response({"detail": "Invalid session", "error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
     
+
+def _apply_user_info(user: Account, first_name: str, last_name: str, role: str, permissions: list, actor_uid: str):
+    """Internal helper to update Django Account, Firestore doc, and Firebase custom claims."""
+    # Update Django model (only if changed)
+    changed = False
+    if first_name and user.first_name != first_name:
+        user.first_name = first_name
+        changed = True
+    if last_name and user.last_name != last_name:
+        user.last_name = last_name
+        changed = True
+    if changed:
+        user.save()
+
+    # Firestore merge
+    user_ref = fs_db.collection("users").document(user.firebase_uid)
+    user_ref.set(
+        {
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+            "role": role,
+            "permissions": permissions,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+            "updatedBy": actor_uid,
+        },
+        merge=True
+    )
+
+    # Fetch existing claims to avoid unnecessary revoke
+    try:
+        fb_user = firebase_auth.get_user(user.firebase_uid)
+        existing_claims = fb_user.custom_claims or {}
+    except Exception:
+        existing_claims = {}
+
+    claims_changed = (
+        existing_claims.get("role") != role or
+        sorted(existing_claims.get("permissions", [])) != sorted(permissions)
+    )
+    if claims_changed:
+        firebase_auth.set_custom_user_claims(user.firebase_uid, {"role": role, "permissions": permissions})
+        try:
+            firebase_auth.revoke_refresh_tokens(user.firebase_uid)
+        except Exception:
+            pass
+
+    return {
+        "uid": user.firebase_uid,
+        "email": user.email,
+        "firstName": user.first_name,
+        "lastName": user.last_name,
+        "role": role,
+        "permissions": permissions,
+        "claimsUpdated": claims_changed,
+        "updatedBy": actor_uid,
+    }
+
+# # ---- Update set_user_info to reuse helper (optional) ----
+# @api_view(["POST"])
+# def set_user_info(request):
+#     data = request.data
+#     target = data.get("uid")
+#     role = data.get("role")
+#     permissions = data.get("permissions", [])
+#     firstName = data.get("firstName", "")
+#     lastName = data.get("lastName", "")
+#     actor_uid = getattr(request, "uid", "") or data.get("adminUid", "")
+
+#     if not target or not role:
+#         return Response({"detail": "uid & role required"}, status=400)
+
+#     try:
+#         user = Account.objects.get(firebase_uid=target)
+#     except Account.DoesNotExist:
+#         return Response({"detail": "User not found"}, status=404)
+
+#     payload = _apply_user_info(user, firstName, lastName, role, permissions, actor_uid)
+#     return Response(payload, status=200)
+
+    
+    
     
 ############### User CRUD Views ###############
 class user_list(APIView):
@@ -238,7 +323,7 @@ class user_list(APIView):
         return [perm() for perm in self.permission_classes]
     
     def get(self, request):
-        users = DfitUser.objects.all()
+        users = Account.objects.all()
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
 
@@ -253,22 +338,45 @@ class user_detail(APIView):
     permission_classes = [IsSessionAuthenticated, UserAccessPermission]
     def get(self, request, firebase_uid):
         try:
-            user = DfitUser.objects.get(firebase_uid=firebase_uid)
-        except DfitUser.DoesNotExist:
+            user = Account.objects.get(firebase_uid=firebase_uid)
+        except Account.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
         serializer = UserSerializer(user)
         return Response(serializer.data)
 
+    # def put(self, request, firebase_uid):
+    #     user = Account.objects.get(firebase_uid=firebase_uid)
+    #     serializer = UserSerializer(user, data=request.data, partial=True)
+    #     if serializer.is_valid():
+    #         serializer.save()
+    #         return Response(serializer.data)
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
     def put(self, request, firebase_uid):
-        user = DfitUser.objects.get(firebase_uid=firebase_uid)
-        serializer = UserSerializer(user, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = Account.objects.get(firebase_uid=firebase_uid)
+        except Account.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+
+        # Extract potential role/permissions from body; fall back to existing claims/firestore if absent
+        role = request.data.get("role") or request.data.get("role") or "customer"
+        permissions = request.data.get("permissions", [])
+        first_name = request.data.get("first_name", user.first_name)
+        last_name = request.data.get("last_name", user.last_name)
+
+        # Apply unified update
+        result = _apply_user_info(
+            user=user,
+            first_name=first_name,
+            last_name=last_name,
+            role=role,
+            permissions=permissions if isinstance(permissions, list) else [],
+            actor_uid=getattr(request, "uid", "")
+        )
+        return Response(result, status=200)
     
     def delete(self, request, firebase_uid):
-        user = DfitUser.objects.get(firebase_uid=firebase_uid)
+        user = Account.objects.get(firebase_uid=firebase_uid)
         user.delete()
         return Response("User deleted successfully",status=status.HTTP_204_NO_CONTENT)  
     
@@ -291,8 +399,8 @@ class profile_list(APIView):
         if not firebase_uid:
             return Response({"error": "Firebase UID is required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            user = DfitUser.objects.get(firebase_uid=firebase_uid)
-        except DfitUser.DoesNotExist:
+            user = Account.objects.get(firebase_uid=firebase_uid)
+        except Account.DoesNotExist:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
         
         profile, _ = Profile.objects.get_or_create(user=user)

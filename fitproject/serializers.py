@@ -1,21 +1,22 @@
 from rest_framework import serializers
-from .models import DfitUser, Profile
+from .models import Account, Profile
 
 class ProfileSerializer(serializers.ModelSerializer):
     firebase_uid = serializers.CharField(source="user.firebase_uid", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     class Meta:
         model = Profile
-        fields = ['firebase_uid','email','phone_number', 'address', 'date_of_birth', 'gender', 'height_cm', 'weight_kg', 'goal', 'trainer_required']
+        fields = ['firebase_uid','email','phone_number', 'role', 'address', 'date_of_birth', 'gender', 'height_cm', 'weight_kg', 'goal', 'joined_date']
         extra_kwargs = {
             "phone_number": {"required": False},
+            "role": {"required": False},
             "address": {"required": False},
             "date_of_birth": {"required": False},
             "gender": {"required": False},
             "height_cm": {"required": False},
             "weight_kg": {"required": False},
             "goal": {"required": False},
-            "trainer_required": {"required": False},
+            "joined_date": {"required": False},
         }
         
     def create(self, validated_data):
@@ -32,7 +33,7 @@ class UserSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(required=False)
 
     class Meta:
-        model = DfitUser
+        model = Account
         fields = ['firebase_uid', 'email', 'first_name', 'last_name', 'created_at', 'updated_at', 'profile']
         read_only_fields = ['created_at', 'updated_at']
         extra_kwargs = {
@@ -44,7 +45,7 @@ class UserSerializer(serializers.ModelSerializer):
         
         def create(self, validated_data):
             profile_data = validated_data.pop('profile', None)
-            user = DfitUser.objects.create(**validated_data)
+            user = Account.objects.create(**validated_data)
             if profile_data:
                 Profile.objects.update_or_create(user=user, defaults=profile_data)
             return user
