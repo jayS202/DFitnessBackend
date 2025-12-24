@@ -202,13 +202,53 @@ def login(request):
     except Exception as e:
         print("Error verifying ID token:", str(e))
         return Response({"detail": "Invalid ID token or login failed", "error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
-    
+
+
 @api_view(["POST"])
 def logout(request):
-    resp = Response({"status": "logged_out"})
-    # Remove session cookie
-    resp.delete_cookie("session")
+    """
+    Logs out the current user:
+    - If a Firebase session cookie or ID token is provided, revoke refresh tokens for that uid.
+    - Always delete the 'session' cookie.
+    """
+    session = request.COOKIES.get(settings.SESSION_COOKIE_NAME)
+    header = request.META.get("HTTP_AUTHORIZATION", "")
+    bearer = header.split(" ", 1)[1] if header.startswith("Bearer ") else None
+
+    uid, source = None, None
+    if session:
+        try:
+            decoded = firebase_auth.verify_session_cookie(session, check_revoked=False)
+            uid, source = decoded.get("uid"), "session"
+        except Exception:
+            pass
+
+    # If not from cookie, try Authorization header (session cookie first, then ID token)
+    if not uid and bearer:
+        try:
+            decoded = firebase_auth.verify_session_cookie(bearer, check_revoked=False)
+            uid, source = decoded.get("uid"), "session"
+        except Exception:
+            try:
+                decoded = firebase_auth.verify_id_token(bearer, check_revoked=False)
+                uid, source = decoded.get("uid"), "id_token"
+            except Exception:
+                pass
+
+    revoked = False
+    if uid:
+        try:
+            firebase_auth.revoke_refresh_tokens(uid)  # invalidates all sessions for this user
+            revoked = True
+        except Exception:
+            revoked = False
+
+    resp = Response({"status": "logged_out", "revoked": revoked, "source": source})
+    # Ensure cookie is cleared on the client
+    # Match samesite used in login; set secure in prod as needed.
+    resp.delete_cookie(settings.SESSION_COOKIE_NAME, samesite=settings.SESSION_COOKIE_SAMESITE)
     return resp
+
 
 @api_view(["POST"])
 def verify_session(request):
