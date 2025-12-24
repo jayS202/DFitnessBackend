@@ -137,3 +137,8 @@ REST_FRAMEWORK = {
 #     'SERVE_INCLUDE_SCHEMA': False,
 #     # OTHER SETTINGS
 # }
+
+SESSION_COOKIE_NAME = "session"
+SESSION_COOKIE_SAMESITE = "Lax"  # change to "None" when using cross-site cookies
+SESSION_COOKIE_SECURE = False     # must be True when SAMESITE=None in browsers
+CSRF_TRUSTED_ORIGINS = ["http://localhost:3000"]
